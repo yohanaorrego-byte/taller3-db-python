@@ -1,11 +1,14 @@
 import os
 
 from dotenv import load_dotenv
+from faker import Faker
 from sqlalchemy import (Column, Date, Integer, MetaData, String, Table,
-                        create_engine)
+                        create_engine, delete, func, insert, select)
 from sqlalchemy.engine import URL
 
 NOMBRE_TABLA = "personas_yohana"
+TOTAL_REGISTROS = 100_000
+TAMANO_LOTE = 5_000
 
 
 def crear_conexion():
@@ -39,12 +42,43 @@ def definir_tabla(metadata):
     )
 
 
+def generar_lote(fake, cantidad):
+    """Genera una lista de diccionarios con datos falsos."""
+    return [
+        {
+            "nombre": fake.first_name(),
+            "apellido": fake.last_name(),
+            "correo": fake.email(),
+            "telefono": fake.phone_number(),
+            "fecha_nacimiento": fake.date_of_birth(minimum_age=18, maximum_age=90),
+            "ciudad": fake.city(),
+            "direccion": fake.address().replace("\n", ", "),
+            "profesion": fake.job(),
+            "empresa": fake.company(),
+        }
+        for _ in range(cantidad)
+    ]
+
+
 def main():
     engine = crear_conexion()
     metadata = MetaData()
-    definir_tabla(metadata)
+    tabla = definir_tabla(metadata)
     metadata.create_all(engine)  # crea la tabla solo si no existe
-    print(f"Tabla {NOMBRE_TABLA} lista.")
+
+    fake = Faker("es_CO")
+
+    with engine.begin() as conn:
+        conn.execute(delete(tabla))  # evita duplicados si se ejecuta dos veces
+        insertados = 0
+        while insertados < TOTAL_REGISTROS:
+            cantidad = min(TAMANO_LOTE, TOTAL_REGISTROS - insertados)
+            conn.execute(insert(tabla), generar_lote(fake, cantidad))
+            insertados += cantidad
+            print(f"Insertados: {insertados}/{TOTAL_REGISTROS}")
+
+        total = conn.execute(select(func.count()).select_from(tabla)).scalar()
+        print(f"Total en la tabla {NOMBRE_TABLA}: {total}")
 
 
 if __name__ == "__main__":
